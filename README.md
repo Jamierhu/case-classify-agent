@@ -18,7 +18,7 @@
 ## 📂 项目结构
 
 ```
-agent/
+case_classify_agent/
 ├── case_classify_agent.py   # 后端主程序（FastAPI + Ollama 调用）
 ├── static/
 │   └── index.html           # 前端页面
@@ -45,7 +45,7 @@ agent/
 ```bash
 # 1. 克隆仓库
 git clone https://github.com/你的用户名/case-classify.git
-cd case-classify/agent
+cd case_classify_agent
 
 # 2. 赋予执行权限
 chmod +x deploy.sh
