@@ -18,7 +18,7 @@
 ## 📂 项目结构
 
 ```
-agent/
+case_classify_agent/
 ├── case_classify_agent.py   # 后端主程序（FastAPI + Ollama 调用）
 ├── static/
 │   └── index.html           # 前端页面
@@ -34,10 +34,10 @@ agent/
 
 ### 环境要求
 
-- **操作系统**：Ubuntu / Debian / CentOS / Arch 等 Linux 发行版
+- **操作系统**：Ubuntu / Debian / CentOS / Arch / Alpine / openSUSE 等 Linux 发行版，或 macOS
 - **Python**：3.8+
 - **内存**：建议 16GB+（模型推理需要）
-- **GPU**：可选，有 NVIDIA GPU 速度更快（推荐 RTX 3060 12GB+）
+- **GPU**：可选，有 NVIDIA GPU 速度更快（推荐 RTX 3060 12GB+），macOS 使用 Metal 加速
 - **网络**：需要能访问 `ollama.com` 拉取模型
 
 ### 部署步骤
@@ -45,7 +45,7 @@ agent/
 ```bash
 # 1. 克隆仓库
 git clone https://github.com/你的用户名/case-classify.git
-cd case-classify/agent
+cd case_classify_agent
 
 # 2. 赋予执行权限
 chmod +x deploy.sh
@@ -90,6 +90,8 @@ chmod +x deploy.sh
 
 ## 🛠️ 常用命令
 
+### Linux（systemd）
+
 ```bash
 # 查看服务状态
 sudo systemctl status case-classify
@@ -111,6 +113,28 @@ ollama list
 
 # 重启 Ollama
 sudo systemctl restart ollama
+```
+
+### macOS（launchd）
+
+```bash
+# 查看服务状态
+launchctl list | grep case-classify
+
+# 查看应用日志
+tail -f /tmp/case-classify.log
+
+# 停止服务
+launchctl unload ~/Library/LaunchAgents/com.case-classify.agent.plist
+
+# 启动服务
+launchctl load ~/Library/LaunchAgents/com.case-classify.agent.plist
+
+# 查看 Ollama 模型
+ollama list
+
+# 查看 Ollama 日志
+tail -f /tmp/ollama.log
 ```
 
 ## 🗑️ 卸载
