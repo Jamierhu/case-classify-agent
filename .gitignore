@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+case_images/
+case_images_temp/
+case_output/
+venv/
+.env
+*.log

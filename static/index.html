@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>病例图片批量分类工具</title>
+    <style>
+        * {box-sizing: border-box; margin:0; padding:0; font-family: system-ui;}
+        body {padding:20px; background:#f5f7fa; max-width:1400px; margin:0 auto;}
+        .box {background:#fff; border-radius:10px; padding:20px; margin-bottom:20px; box-shadow:0 1px 4px #ddd;}
+        h2 {margin-bottom:16px; color:#222;}
+        .row {display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px;}
+        .form-item {display:flex; flex-direction:column; gap:6px; min-width:220px;}
+        label {font-weight:500; color:#333;}
+        input {padding:10px; border:1px solid #ccc; border-radius:6px; font-size:14px;}
+        .btn-group {margin:20px 0; display:flex; gap:12px;}
+        button {padding:10px 24px; border:none; border-radius:6px; cursor:pointer; font-size:14px;}
+        #selectFileBtn {background:#2b7cd3; color:#fff;}
+        #submitBatchBtn {background:#009688; color:#fff;}
+        #clearBtn {background:#999; color:#fff;}
+        input[type="file"] {display:none;}
+        .tip {color:#666; font-size:13px; margin:8px 0;}
+        .archive-path {padding:10px; background:#eef6ff; border-radius:6px; word-break:break-all; margin:10px 0;}
+        .preview-wrap {display:grid; grid-template-columns: repeat(auto-fill, minmax(160px,1fr)); gap:12px; margin-top:16px;}
+        .img-card {border:1px solid #eee; border-radius:8px; padding:8px;}
+        .img-card img {width:100%; height:140px; object-fit:contain; background:#f9f9f9;}
+        .img-card p {font-size:12px; margin-top:6px;}
+        .success {color:#009688; font-weight:bold;}
+        .error {color:#f53f3f; font-weight:bold;}
+        .loading {color:#2b7cd3;}
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h2>病例批量分类配置</h2>
+        <div class="form-item" style="margin-bottom:16px;">
+            <label>候选姓名名单（用于校正识别结果，逗号分隔）</label>
+            <input id="candidateNamesInput" style="width:100%;" placeholder="例如：张三,李四,王五,赵六（模型会从名单中选择最匹配的姓名，避免识别成错误名字）">
+            <div class="tip">填写后，模型识别的姓名会自动校正到名单中最接近的一个；留空则使用模型自由识别的结果</div>
+        </div>
+        <div class="tip">分类后文件归档路径规则：./case_output/姓名/日期/科室/图片.jpg（姓名、科室、日期均由模型从图片识别）</div>
+        <div class="archive-path" id="archiveDirShow">归档目录将在此展示</div>
+        <div class="btn-group">
+            <button id="selectFileBtn">选择文件（多选）</button>
+            <input type="file" id="fileInput" multiple accept="image/jpeg,image/jpg,image/png">
+            <button id="submitBatchBtn">开始批量分类</button>
+            <button id="clearBtn">清空预览</button>
+        </div>
+        <div class="tip" id="statusTip">等待选择图片...</div>
+    </div>
+
+    <div class="box">
+        <h2>图片预览与分类结果</h2>
+        <div class="preview-wrap" id="previewBox"></div>
+    </div>
+
+<script>
+// 后端地址，替换成你的WSL局域网IP
+// 相对路径，无需填写IP
+const API_BASE = "";
+const fileInput = document.getElementById("fileInput");
+const selectFileBtn = document.getElementById("selectFileBtn");
+const submitBatchBtn = document.getElementById("submitBatchBtn");
+const clearBtn = document.getElementById("clearBtn");
+const previewBox = document.getElementById("previewBox");
+const statusTip = document.getElementById("statusTip");
+const archiveDirShow = document.getElementById("archiveDirShow");
+const candidateNamesInput = document.getElementById("candidateNamesInput");
+let selectedFiles = [];
+
+// 选择图片（多选文件）
+selectFileBtn.onclick = ()=> fileInput.click();
+fileInput.onchange = (e)=>{
+    const files = Array.from(e.target.files);
+    if(files.length ===0) return;
+    selectedFiles = files;
+    renderPreview();
+    statusTip.innerText = `已选中 ${files.length} 张图片`;
+};
+
+// 渲染预览
+function renderPreview(){
+    previewBox.innerHTML = "";
+    selectedFiles.forEach(file=>{
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = (ev)=>{
+            const card = document.createElement("div");
+            card.className = "img-card";
+            card.innerHTML = `
+                <img src="${ev.target.result}" />
+                <p>${file.name}</p>
+                <p class="loading">待分类</p>
+            `;
+            previewBox.appendChild(card);
+            file.cardDom = card;
+        }
+    })
+}
+
+// 清空
+clearBtn.onclick = ()=>{
+    selectedFiles = [];
+    previewBox.innerHTML = "";
+    statusTip.innerText = "等待选择图片...";
+    archiveDirShow.innerText = "归档目录将在此展示";
+}
+
+// 批量提交分类
+submitBatchBtn.onclick = async ()=>{
+    if(selectedFiles.length ===0){
+        alert("请先选择图片文件");
+        return;
+    }
+    const imgCount = selectedFiles.length;
+    const estimateMin = Math.ceil(imgCount / 3) * 1.5; // 每3张约需1.5分钟（含批次间隔）
+    statusTip.innerText = `正在分批调用AI分类（共${imgCount}张，预计${estimateMin}分钟内完成），请耐心等待...`;
+    // 更新预览状态为处理中
+    selectedFiles.forEach(f=>{
+        const p = f.cardDom.querySelector("p:last-child");
+        p.className = "loading";
+        p.innerText = "处理中...";
+    })
+
+    // 构造表单数据
+    const formData = new FormData();
+    selectedFiles.forEach(f=> formData.append("files", f));
+    // 候选姓名名单（用于校正识别结果）
+    const candidateNames = candidateNamesInput.value.trim();
+    if(candidateNames){
+        formData.append("candidate_names", candidateNames);
+    }
+
+    // 设置超时（每张图片预留90s + 批次间隔）
+    const timeoutMs = Math.max(300000, imgCount * 120000); // 最少5分钟，每张图2分钟
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try{
+        const res = await fetch(`${API_BASE}/batch_upload`, {
+            method:"POST",
+            body: formData,
+            signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        const json = await res.json();
+        if(json.code !==0) throw new Error(json.detail || "服务异常");
+        // 回填每张图片分类结果
+        json.data.forEach(item=>{
+            const matchFile = selectedFiles.find(f=> f.name === item.filename);
+            if(!matchFile) return;
+            const p = matchFile.cardDom.querySelector("p:last-child");
+            if(item.status === "success"){
+                p.className = "success";
+                p.innerText = item.classify;
+                // 追加提取的姓名/科室/日期信息
+                const infoP = document.createElement("p");
+                infoP.style.fontSize = "11px";
+                infoP.style.color = "#666";
+                infoP.innerText = `姓名:${item.extracted_name || '-'} / ${item.extracted_dept || '-'} / ${item.extracted_date || '-'}`;
+                matchFile.cardDom.appendChild(infoP);
+            }else{
+                p.className = "error";
+                p.innerText = "失败:"+item.error;
+            }
+        })
+        const successCount = json.data.filter(d=>d.status==="success").length;
+        statusTip.innerText = `处理完成，成功${successCount}张，失败${json.data.length - successCount}张`;
+        // 展示第一条成功记录的归档路径作为示例
+        const firstSuccess = json.data.find(d=>d.status==="success");
+        if(firstSuccess){
+            archiveDirShow.innerText = "示例归档路径：" + firstSuccess.archive_path;
+        }
+    }catch(err){
+        if(err.name === "AbortError"){
+            statusTip.innerText = "请求超时，图片过多建议分批上传";
+        }else{
+            statusTip.innerText = "请求失败：" + err.message;
+        }
+        alert("连接后端失败，请确认Ollama和FastAPI服务已启动，或减少单次上传图片数量");
+    }
+}
+</script>
+</body>
+</html>
