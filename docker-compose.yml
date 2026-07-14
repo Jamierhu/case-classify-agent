@@ -1,0 +1,46 @@
+# =====================================================================
+# 病例图片分类小工具 - Docker Compose 编排
+# 用法：
+#   首次启动：docker compose up -d --build
+#   查看日志：docker compose logs -f
+#   停止：    docker compose down
+#   查看状态：docker compose ps
+# =====================================================================
+services:
+  case-classify:
+    build: .
+    container_name: case-classify
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8000}:8000"        # Web 应用端口
+      - "${OLLAMA_PORT:-11434}:11434"   # Ollama API 端口（可选，供外部调用）
+    volumes:
+      # 持久化：Ollama 模型（避免每次重建容器重新下载）
+      - ollama_data:/root/.ollama
+      # 持久化：归档输出目录
+      - ./case_output:/app/case_output
+      # 持久化：SQLite 数据库
+      - ./case_data:/app/case_data
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_NUM_PARALLEL=4
+      - OLLAMA_KEEP_ALIVE=-1
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3-vl:8b}
+    # GPU 支持（NVIDIA）——取消注释以启用
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  ollama_data:

@@ -4,5 +4,7 @@ case_images/
 case_images_temp/
 case_output/
 venv/
+.venv/
+case_record.db
 .env
 *.log

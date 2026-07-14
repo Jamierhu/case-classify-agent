@@ -1,14 +1,25 @@
 #!/bin/bash
 # =====================================================================
 # 病例图片分类小工具 - 一键部署脚本
-# 适用系统：Ubuntu / Debian / CentOS / Arch / Alpine / openSUSE 等 Linux 发行版 / macOS
+# 适用系统：Linux / macOS
 # 功能：
 #   1. 安装系统依赖（Python、Ollama）
 #   2. 拉取视觉模型 qwen3-vl:8b
 #   3. 配置 Ollama 并发/常驻显存等优化项
 #   4. 创建 Python 虚拟环境并安装依赖
-#   5. 注册服务（Linux: systemd / macOS: launchd），开机自启 + 局域网访问
+#   5. 注册服务（Linux: systemd / macOS: launchd / Docker: 跳过），开机自启 + 局域网访问
 #   6. 配置防火墙放行端口
+#
+# 部署模式（--mode 参数）：
+#   service  : 注册系统服务（systemd/launchd），开机自启（默认）
+#   dev      : 仅安装依赖，不注册服务（开发/调试模式）
+#   docker   : 使用 Docker Compose 部署（需预装 Docker）
+#
+# 用法：
+#   ./deploy.sh                  # 默认 service 模式
+#   ./deploy.sh --mode dev       # 开发模式
+#   ./deploy.sh --mode docker    # Docker 部署
+#   ./deploy.sh --help           # 查看帮助
 # =====================================================================
 set -e
 
@@ -24,6 +35,58 @@ warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; }
 step()  { echo -e "\n${BLUE}========== $1 ==========${NC}"; }
 
+# ---------- 参数解析 ----------
+DEPLOY_MODE="service"
+SHOW_HELP=false
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --mode)
+            DEPLOY_MODE="$2"
+            shift 2
+            ;;
+        --mode=*)
+            DEPLOY_MODE="${1#*=}"
+            shift
+            ;;
+        --help|-h)
+            SHOW_HELP=true
+            shift
+            ;;
+        *)
+            error "未知参数：$1"
+            SHOW_HELP=true
+            shift
+            ;;
+    esac
+done
+
+if [[ "$SHOW_HELP" == "true" ]]; then
+    echo "用法：./deploy.sh [--mode service|dev|docker] [--help]"
+    echo ""
+    echo "部署模式："
+    echo "  service  注册系统服务（systemd/launchd），开机自启（默认）"
+    echo "  dev      仅安装依赖，不注册服务（开发/调试模式）"
+    echo "  docker   使用 Docker Compose 部署（需预装 Docker）"
+    echo ""
+    echo "示例："
+    echo "  ./deploy.sh                  # 默认 service 模式"
+    echo "  ./deploy.sh --mode dev       # 开发模式"
+    echo "  ./deploy.sh --mode docker    # Docker 部署"
+    exit 0
+fi
+
+# 校验部署模式
+case "$DEPLOY_MODE" in
+    service|dev|docker) ;;
+    *)
+        error "无效的部署模式：$DEPLOY_MODE（可选值：service / dev / docker）"
+        exit 1
+        ;;
+esac
+
+info "部署模式：$DEPLOY_MODE"
+
 # ---------- 系统检测 ----------
 detect_os() {
     case "$(uname -s)" in
@@ -33,6 +96,75 @@ detect_os() {
     esac
 }
 OS=$(detect_os)
+
+# ---------- 运行环境检测 ----------
+# 检测是否在 Docker 容器内
+detect_in_docker() {
+    [[ -f /.dockerenv ]] && return 0
+    grep -qa docker /proc/1/cgroup 2>/dev/null && return 0
+    return 1
+}
+
+# 检测是否为虚拟机
+detect_vm() {
+    if [[ "$OS" == "Linux" ]]; then
+        if command -v systemd-detect-virt &>/dev/null; then
+            local virt_type
+            virt_type=$(systemd-detect-virt 2>/dev/null || echo "none")
+            [[ "$virt_type" != "none" && "$virt_type" != "kvm" ]] && return 0
+        fi
+        # 检测常见虚拟机特征
+        if grep -qiE 'hypervisor|vmware|xen|kvm|qemu|virtualbox|hyperv' /proc/cpuinfo 2>/dev/null; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# 检测是否为云服务器（通过云厂商特征）
+detect_cloud() {
+    if [[ "$OS" == "Linux" ]]; then
+        # 检查云厂商元数据特征
+        if curl -s --max-time 2 http://100.100.100.200/latest/meta-data/instance-id >/dev/null 2>&1; then
+            echo "aliyun"
+            return 0
+        fi
+        if curl -s --max-time 2 http://169.254.169.254/latest/meta-data/instance-id >/dev/null 2>&1; then
+            echo "aws"
+            return 0
+        fi
+        if curl -s --max-time 2 -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/id >/dev/null 2>&1; then
+            echo "gcp"
+            return 0
+        fi
+        # 检查腾讯云
+        if curl -s --max-time 2 http://metadata.tencentyun.com/latest/meta-data/instance-id >/dev/null 2>&1; then
+            echo "tencent"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# 环境信息
+IN_DOCKER=false
+IS_VM=false
+CLOUD_PROVIDER=""
+
+if detect_in_docker; then
+    IN_DOCKER=true
+    info "检测到当前运行在 Docker 容器内"
+fi
+
+if [[ "$IN_DOCKER" == "false" ]]; then
+    if detect_vm; then
+        IS_VM=true
+        info "检测到虚拟机环境"
+    fi
+    if CLOUD_PROVIDER=$(detect_cloud); then
+        info "检测到云服务器环境：$CLOUD_PROVIDER"
+    fi
+fi
 
 # macOS: 确保 Homebrew 路径在 PATH 中（Apple Silicon 和 Intel 路径不同）
 if [[ "$OS" == "macOS" ]]; then
@@ -139,10 +271,104 @@ get_lan_ip() {
     echo "$ip"
 }
 
+# =====================================================================
+# Docker 部署模式
+# =====================================================================
+if [[ "$DEPLOY_MODE" == "docker" ]]; then
+    step "Docker Compose 部署模式"
+
+    # 检查 Docker
+    if ! command -v docker &>/dev/null; then
+        error "未检测到 Docker，请先安装 Docker"
+        if [[ "$OS" == "macOS" ]]; then
+            echo -e "  ${YELLOW}安装方式：brew install --cask docker${NC}"
+        elif [[ "$OS" == "Linux" ]]; then
+            echo -e "  ${YELLOW}安装方式：curl -fsSL https://get.docker.com | sh${NC}"
+        fi
+        exit 1
+    fi
+    info "Docker 版本：$(docker --version)"
+
+    # 检查 docker compose
+    if docker compose version &>/dev/null; then
+        COMPOSE_CMD="docker compose"
+    elif command -v docker-compose &>/dev/null; then
+        COMPOSE_CMD="docker-compose"
+    else
+        error "未检测到 Docker Compose，请安装 Docker Compose V2 或 docker-compose"
+        exit 1
+    fi
+    info "Compose 命令：$COMPOSE_CMD"
+
+    # 获取局域网 IP
+    LAN_IP=$(get_lan_ip)
+    [[ -z "$LAN_IP" ]] && LAN_IP="127.0.0.1"
+
+    # 构建并启动
+    step "构建并启动 Docker 容器"
+    info "正在构建镜像并启动容器（首次构建需要下载模型，可能耗时较长）..."
+    cd "$SCRIPT_DIR"
+    $COMPOSE_CMD up -d --build
+    info "Docker 容器已启动"
+
+    # 等待服务就绪
+    step "等待服务就绪"
+    info "等待 Ollama 拉取模型并启动 Web 服务（可能需要数分钟）..."
+    for ((i=1; i<=120; i++)); do
+        if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${APP_PORT}/" 2>/dev/null | grep -q "200"; then
+            info "✅ Web 服务已就绪"
+            break
+        fi
+        if [[ $i -eq 120 ]]; then
+            warn "服务启动超时（120秒），请查看日志：$COMPOSE_CMD logs -f"
+        fi
+        sleep 3
+    done
+
+    # 完成
+    echo ""
+    echo -e "${GREEN}========================================================${NC}"
+    echo -e "${GREEN}          🎉 Docker 部署成功！${NC}"
+    echo -e "${GREEN}========================================================${NC}"
+    echo ""
+    echo -e "访问地址："
+    echo -e "  本机访问：  ${BLUE}http://127.0.0.1:${APP_PORT}${NC}"
+    echo -e "  局域网访问：${BLUE}http://${LAN_IP}:${APP_PORT}${NC}"
+    echo ""
+    echo -e "常用命令："
+    echo -e "  查看日志：  ${YELLOW}${COMPOSE_CMD} logs -f${NC}"
+    echo -e "  查看状态：  ${YELLOW}${COMPOSE_CMD} ps${NC}"
+    echo -e "  停止服务：  ${YELLOW}${COMPOSE_CMD} down${NC}"
+    echo -e "  重启服务：  ${YELLOW}${COMPOSE_CMD} restart${NC}"
+    echo ""
+    echo -e "${YELLOW}提示：若使用云服务器，请在安全组中放行端口 ${APP_PORT}${NC}"
+
+    exit 0
+fi
+
+# =====================================================================
+# 常规部署模式（service / dev）
+# =====================================================================
+
 # ---------- 前置检查 ----------
 step "1/7 环境检查"
 
 info "检测到系统：$OS"
+if [[ "$IS_VM" == "true" ]]; then
+    info "运行环境：虚拟机"
+elif [[ -n "$CLOUD_PROVIDER" ]]; then
+    info "运行环境：云服务器（$CLOUD_PROVIDER）"
+elif [[ "$IN_DOCKER" == "true" ]]; then
+    info "运行环境：Docker 容器"
+else
+    info "运行环境：物理机/本机"
+fi
+
+if [[ "$OS" != "Linux" && "$OS" != "macOS" ]]; then
+    error "不支持的操作系统：$OS"
+    echo -e "  ${YELLOW}Windows 请使用 deploy.ps1 脚本${NC}"
+    exit 1
+fi
 
 if [[ -z "$PKG_MGR" ]]; then
     if [[ "$OS" == "macOS" ]]; then
@@ -170,6 +396,11 @@ if [[ -z "$LAN_IP" ]]; then
     warn "无法自动获取局域网 IP，默认使用 127.0.0.1"
 else
     info "本机局域网 IP：$LAN_IP"
+fi
+
+# 云服务器安全组提示
+if [[ -n "$CLOUD_PROVIDER" ]]; then
+    warn "检测到云服务器环境（$CLOUD_PROVIDER），请确保安全组放行端口 $APP_PORT"
 fi
 
 # 检查 Python 版本（需要 3.8+）
@@ -228,36 +459,41 @@ else
     info "Ollama 安装完成"
 fi
 
-# 启动 Ollama 服务
-if [[ "$OS" == "macOS" ]]; then
-    # macOS: Ollama 将在步骤 3.1 通过 LaunchAgent 统一启动
-    # （避免 nohup 临时进程与 LaunchAgent 同时运行导致端口冲突）
-    info "Ollama 将通过 LaunchAgent 启动（见下一步配置）"
+# Docker 容器内跳过 systemd/launchd 服务管理
+if [[ "$IN_DOCKER" == "true" ]]; then
+    info "Docker 容器环境：Ollama 已由容器入口脚本管理，跳过服务注册"
 else
-    # Linux: 使用 systemd 管理
-    # 修复：部分环境下 ollama 用户的家目录（如 /usr/share/ollama）可能缺失，
-    # 导致 ollama serve 启动时报错 "could not create directory ... permission denied"。
-    # 这里在启动前确保家目录存在且归属正确。
-    if id ollama &>/dev/null; then
-        OLLAMA_HOME="$(getent passwd ollama | cut -d: -f6)"
-        if [[ -n "$OLLAMA_HOME" && ! -d "$OLLAMA_HOME" ]]; then
-            info "创建 Ollama 服务用户家目录：$OLLAMA_HOME"
-            sudo mkdir -p "$OLLAMA_HOME"
-            sudo chown -R ollama:ollama "$OLLAMA_HOME"
+    # 启动 Ollama 服务
+    if [[ "$OS" == "macOS" ]]; then
+        # macOS: Ollama 将在步骤 3.1 通过 LaunchAgent 统一启动
+        info "Ollama 将通过 LaunchAgent 启动（见下一步配置）"
+    else
+        # Linux: 使用 systemd 管理
+        # 修复：部分环境下 ollama 用户的家目录可能缺失
+        if id ollama &>/dev/null; then
+            OLLAMA_HOME="$(getent passwd ollama | cut -d: -f6)"
+            if [[ -n "$OLLAMA_HOME" && ! -d "$OLLAMA_HOME" ]]; then
+                info "创建 Ollama 服务用户家目录：$OLLAMA_HOME"
+                sudo mkdir -p "$OLLAMA_HOME"
+                sudo chown -R ollama:ollama "$OLLAMA_HOME"
+            fi
         fi
-    fi
 
-    if ! systemctl is-active --quiet ollama; then
-        sudo systemctl start ollama
+        if ! systemctl is-active --quiet ollama; then
+            sudo systemctl start ollama
+        fi
+        sudo systemctl enable ollama
+        info "Ollama 服务已启动并设置开机自启"
     fi
-    sudo systemctl enable ollama
-    info "Ollama 服务已启动并设置开机自启"
 fi
 
 # 配置 Ollama 优化项
 step "3.1 配置 Ollama 性能优化（并发=4, 常驻显存, FlashAttention）"
 
-if [[ "$OS" == "Linux" ]]; then
+if [[ "$IN_DOCKER" == "true" ]]; then
+    # Docker 容器内通过环境变量配置
+    info "Docker 环境：Ollama 优化项通过环境变量配置（已在 Dockerfile 中设置）"
+elif [[ "$OS" == "Linux" ]]; then
     OLLAMA_OVERRIDE_DIR="/etc/systemd/system/ollama.service.d"
     sudo mkdir -p "$OLLAMA_OVERRIDE_DIR"
 
@@ -349,25 +585,20 @@ source "$VENV_DIR/bin/activate"
 # 升级 pip
 pip install --upgrade pip -q
 
-# 生成/更新 requirements.txt
-cat > "$SCRIPT_DIR/requirements.txt" <<'EOF'
-fastapi>=0.110.0
-uvicorn[standard]>=0.27.0
-python-multipart>=0.0.9
-requests>=2.31.0
-Pillow>=10.0.0
-opencv-python-headless>=4.8.0
-numpy>=1.24.0
-EOF
-
+# 安装依赖
 info "安装 Python 依赖..."
 pip install -r "$SCRIPT_DIR/requirements.txt" -q
 info "Python 依赖安装完成"
 
 # ---------- 注册服务 ----------
-step "5/7 注册服务（开机自启 + 崩溃自动重启）"
+step "5/7 注册服务"
 
-if [[ "$OS" == "macOS" ]]; then
+if [[ "$DEPLOY_MODE" == "dev" ]]; then
+    info "开发模式：跳过服务注册"
+    echo -e "  ${YELLOW}手动启动命令：source .venv/bin/activate && python case_classify_agent.py${NC}"
+elif [[ "$IN_DOCKER" == "true" ]]; then
+    info "Docker 容器环境：服务由容器入口脚本管理，跳过服务注册"
+elif [[ "$OS" == "macOS" ]]; then
     # macOS: 使用 LaunchAgent plist
     mkdir -p "$HOME/Library/LaunchAgents"
     cat > "$LAUNCHD_PLIST" <<PLISTEOF
@@ -444,9 +675,11 @@ fi
 # ---------- 配置防火墙 ----------
 step "6/7 配置防火墙放行端口"
 
-if [[ "$OS" == "macOS" ]]; then
+# Docker 容器内跳过防火墙配置（由宿主机/Docker 网络管理）
+if [[ "$IN_DOCKER" == "true" ]]; then
+    info "Docker 容器环境：防火墙由宿主机管理，跳过"
+elif [[ "$OS" == "macOS" ]]; then
     # macOS 防火墙是应用级别的，不需要额外放行端口
-    # 如果系统防火墙已开启，提示用户手动允许 Python
     if /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null | grep -qi "on"; then
         warn "macOS 防火墙已开启，如无法访问请到「系统设置 → 网络 → 防火墙」放行 Python"
     else
@@ -468,14 +701,43 @@ else
     fi
 fi
 
+# 云服务器安全组提示
+if [[ -n "$CLOUD_PROVIDER" ]]; then
+    warn "云服务器（$CLOUD_PROVIDER）还需在控制台安全组中放行端口 $APP_PORT"
+fi
+
 # ---------- 完成 ----------
 step "7/7 部署完成"
+
+# 开发模式直接结束
+if [[ "$DEPLOY_MODE" == "dev" ]]; then
+    echo ""
+    echo -e "${GREEN}========================================================${NC}"
+    echo -e "${GREEN}          🎉 开发环境就绪！${NC}"
+    echo -e "${GREEN}========================================================${NC}"
+    echo ""
+    echo -e "手动启动命令："
+    echo -e "  ${YELLOW}cd $SCRIPT_DIR${NC}"
+    echo -e "  ${YELLOW}source .venv/bin/activate${NC}"
+    echo -e "  ${YELLOW}python case_classify_agent.py${NC}"
+    echo ""
+    echo -e "访问地址：${BLUE}http://127.0.0.1:${APP_PORT}${NC}"
+    echo ""
+    exit 0
+fi
 
 # 等待服务启动
 sleep 3
 
 # 检查服务状态
-if [[ "$OS" == "macOS" ]]; then
+if [[ "$IN_DOCKER" == "true" ]]; then
+    # Docker 内直接检查端口
+    if curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${APP_PORT}/" 2>/dev/null | grep -q "200"; then
+        info "✅ 服务运行正常"
+    else
+        warn "服务可能还在启动中"
+    fi
+elif [[ "$OS" == "macOS" ]]; then
     if launchctl list | grep -q "$LAUNCHD_LABEL"; then
         info "✅ 服务运行正常"
     else

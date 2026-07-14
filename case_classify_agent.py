@@ -17,8 +17,9 @@ from typing import List, Optional
 from fastapi.middleware.cors import CORSMiddleware
 
 # ===================== 配置区 =====================
-OLLAMA_HOST = "http://127.0.0.1:11434"
-MODEL_NAME = "qwen3-vl:8b"   # 视觉语言模型，识别质量远优于 glm-ocr
+# 支持环境变量覆盖，适配 Docker / 云端 / 远程 Ollama 等场景
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST_URL", "http://127.0.0.1:11434")
+MODEL_NAME = os.environ.get("OLLAMA_MODEL", "qwen3-vl:8b")   # 视觉语言模型，识别质量远优于 glm-ocr
 CLASS_LIST = [
     "1-胸部CT影像",
     "2-血常规化验单",
@@ -27,9 +28,11 @@ CLASS_LIST = [
     "5-检验报告单",
     "6-无有效医疗图像"
 ]
-SAVE_IMG_DIR = "./case_images_temp"
-OUTPUT_ROOT = "./case_output"
-DB_PATH = "./case_record.db"
+# 基于脚本所在目录的绝对路径，避免工作目录变化导致文件散落各处
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SAVE_IMG_DIR = os.path.join(_BASE_DIR, "case_images_temp")
+OUTPUT_ROOT = os.path.join(_BASE_DIR, "case_output")
+DB_PATH = os.path.join(_BASE_DIR, "case_record.db")
 # 并发调用Ollama的最大数量（需与 OLLAMA_NUM_PARALLEL 匹配，建议2-4）
 MAX_CONCURRENT = 4
 # 单张图片最长边（姓名等小字需要更高分辨率，1280px兼顾识别率与速度）
@@ -62,6 +65,12 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 @app.get("/")
 async def index_page():
     return FileResponse("static/index.html")
+
+# 应用启动时自动初始化数据库（uvicorn命令行启动不会执行__main__块，
+# 必须用startup事件保证表一定被创建）
+@app.on_event("startup")
+def _startup_init_db():
+    init_db()
 
 # 初始化数据库
 def init_db():
@@ -101,22 +110,41 @@ def image_to_base64(img: Image.Image) -> str:
 
 # 同步核心：调用Ollama（在后台线程中执行，不阻塞事件循环）
 def _ollama_extract_info_sync(base64_img: str, candidate_names: list = None) -> dict:
-    # 构建候选姓名提示（如果有）——只作为参考，不强制
-    name_hint = ""
+    # 根据是否有候选名单，采用不同策略：
+    # - 有名单：把"OCR识别"转化为"名单选择"任务（封闭集合选择，错别字率极低）
+    # - 无名单：纯OCR识别，加强字形辨认指引
     if candidate_names:
-        name_hint = f"""
-【参考信息】可能的患者姓名名单：{json.dumps(candidate_names, ensure_ascii=False)}
-请先正常识别图片上的姓名。如果识别结果与名单中某个名字相似（如存在错别字、字迹模糊），优先输出名单中的那个名字。"""
+        name_section = f"""
+【姓名识别任务（从名单中选择）】
+图片上有一个患者姓名。候选名单如下：
+{json.dumps(candidate_names, ensure_ascii=False)}
 
-    prompt = f"""分析这张医疗图片。classify从以下选项中选最匹配的一项：[{', '.join(CLASS_LIST)}]。
-同时提取图片中的患者姓名name、就诊日期date(格式YYYY-MM-DD)、科室dept。
-{name_hint}
+请按以下步骤判断：
+1. 先在图片上定位姓名位置（通常在"姓名:"、"患者:"字段后，或表格首行、印章附近）
+2. 仔细辨认图片上姓名的每个字
+3. 将辨认结果与候选名单逐一比对，选出与图片上姓名最匹配的一个
+   - 完全一致：直接选该名字
+   - 仅个别字差异（字形相近如"日/曰"、"己/已"、印刷模糊、手写潦草）：选名单中的那个
+   - 只有当图片上姓名与名单中所有名字都明显不同（差异字数≥2）时，才输出图片上实际看到的姓名
+4. name字段只输出最终选定的纯姓名（2-4个汉字），不含"姓名:"等前缀"""
+    else:
+        name_section = """
+【姓名识别任务（OCR辨认）】
+请仔细辨认图片上的患者姓名：
+1. 定位姓名位置（"姓名:"、"患者:"字段后，或表格首行、印章附近）
+2. 逐字辨认，注意区分形近字：日/曰、己/已/巳、戊/戌/戍、未/末、土/士、人/入、千/干
+3. 中文姓名通常为2-4个汉字
+4. name字段只输出纯姓名，不含"姓名:"等前缀
+5. 必须输出图片上实际看到的姓名，不要输出空字符串"""
 
-【姓名提取要求】
-1. name字段只输出纯姓名，不要包含"姓名:"、"患者:"等前缀
-2. 中文姓名通常为2-4个汉字
-3. 仔细查看图片顶部、表格首行、印章附近等常见位置
-4. 必须输出图片上实际看到的姓名，不要因为不在名单中就输出空字符串
+    prompt = f"""分析这张医疗图片，完成两项任务：
+
+任务一【分类】：classify从以下选项中选最匹配的一项：[{', '.join(CLASS_LIST)}]
+任务二【信息提取】：提取患者姓名name、就诊日期date(格式YYYY-MM-DD)、科室dept
+{name_section}
+
+【日期提取】格式YYYY-MM-DD，找不到则输出"未知日期"
+【科室提取】输出图片上明确标注的科室，找不到则输出"普通门诊"
 
 只输出JSON，格式：{{"classify":"...","name":"...","date":"...","dept":"..."}}"""
     payload = {
@@ -195,7 +223,7 @@ def _match_candidate_name(raw_name, candidate_names: list) -> str:
     # 完全匹配
     if name in candidate_names:
         return name
-    # 模糊匹配：计算相似度
+    # 模糊匹配：综合相似度与编辑距离
     best_match = None
     best_score = 0.0
     for cand in candidate_names:
@@ -207,13 +235,33 @@ def _match_candidate_name(raw_name, candidate_names: list) -> str:
         if score > best_score:
             best_score = score
             best_match = cand
-    # 相似度阈值：0.6以上才采纳候选名单中的名字（校正错别字）
-    if best_match and best_score >= 0.6:
-        return best_match
+    # 相似度阈值提高到0.7：只有高度相似才校正（避免把不同姓名误判为错别字）
+    # 同时要求编辑距离≤1（仅允许1个字的差异，符合"个别错别字"的语义）
+    if best_match and best_score >= 0.7:
+        edit_dist = _edit_distance(name, best_match)
+        if edit_dist <= 1:
+            return best_match
+        # 编辑距离=2但相似度很高（如3字名错2字），仍可校正
+        if edit_dist == 2 and best_score >= 0.85:
+            return best_match
     # 匹配不上：保留原始识别结果（只做长度校验）
     if 2 <= len(name) <= 4:
         return name
     return "未知患者"
+
+# 编辑距离（Levenshtein）：用于姓名校正时判断差异字数
+def _edit_distance(s1: str, s2: str) -> int:
+    if len(s1) < len(s2):
+        return _edit_distance(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    prev = list(range(len(s2) + 1))
+    for i, c1 in enumerate(s1):
+        curr = [i + 1]
+        for j, c2 in enumerate(s2):
+            curr.append(min(prev[j + 1] + 1, curr[j] + 1, prev[j] + (c1 != c2)))
+        prev = curr
+    return prev[-1]
 
 # 姓名清洗：去除前缀、只保留汉字、校验长度
 def _clean_name(raw_name) -> str:
@@ -237,15 +285,29 @@ def _clean_name(raw_name) -> str:
 
 # 姓名二次提取：用更高分辨率+专门prompt重新识别姓名
 def _ollama_extract_name_sync(base64_img: str, candidate_names: list = None) -> str:
-    name_hint = ""
     if candidate_names:
-        name_hint = f"参考名单（可能的患者姓名）：{json.dumps(candidate_names, ensure_ascii=False)}。请先正常识别图片上的姓名，如果与名单中某个相似则输出名单中的那个。"
-    prompt = f"""这张医疗单据上患者的姓名是什么？
-{name_hint}
+        prompt = f"""任务：从候选名单中选出图片上患者的姓名。
+
+候选名单：{json.dumps(candidate_names, ensure_ascii=False)}
+
+判断步骤：
+1. 在图片上定位姓名（"姓名:"、"患者:"字段后，或表格首行、印章附近）
+2. 仔细辨认图片上姓名的每个字，注意区分形近字（日/曰、己/已/巳、未/末、土/士等）
+3. 将辨认结果与候选名单逐一比对，选出最匹配的一个：
+   - 完全一致或仅个别字形相近/印刷模糊：选名单中的那个
+   - 与所有候选都明显不同（差异字数≥2）：输出图片上实际看到的姓名
+4. 只输出纯姓名（2-4个汉字），不含任何前缀或解释
+
+只输出JSON：{{"name":"..."}}"""
+    else:
+        prompt = f"""任务：辨认图片上患者的姓名。
+
 要求：
-1. 只输出纯姓名（2-4个汉字），不要任何前缀、标点或解释
-2. 仔细查看图片中"姓名"、"患者"、"Name"等字段附近
-3. 必须输出图片上实际看到的姓名，不要因为不在名单中就输出空字符串
+1. 定位姓名位置（"姓名:"、"患者:"、"Name"字段后，或表格首行、印章附近）
+2. 逐字辨认，注意区分形近字：日/曰、己/已/巳、戊/戌/戍、未/末、土/士、人/入、千/干
+3. 只输出纯姓名（2-4个汉字），不含任何前缀、标点或解释
+4. 必须输出图片上实际看到的姓名，不要输出空字符串
+
 只输出JSON：{{"name":"..."}}"""
     payload = {
         "model": MODEL_NAME,

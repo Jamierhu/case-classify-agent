@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+*.egg
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 运行时数据
+case_output/
+case_images_temp/
+case_record.db
+case_data/
+
+# 日志
+*.log
+
+# 版本控制
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# 环境变量
+.env
+
+# Docker 自身
+Dockerfile
+docker-compose.yml
+docker-compose.*.yml
+.dockerignore
+
+# 部署脚本（容器内不需要）
+deploy.sh
+uninstall.sh
+deploy.ps1
+uninstall.ps1
