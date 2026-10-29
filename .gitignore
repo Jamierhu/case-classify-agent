@@ -8,3 +8,7 @@ venv/
 case_record.db
 .env
 *.log
+case_record.db.*
+*.bak
+releases/
+ops/

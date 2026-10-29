@@ -6,6 +6,12 @@
     <style>
         * {box-sizing: border-box; margin:0; padding:0; font-family: system-ui;}
         body {padding:20px; background:#f5f7fa; max-width:1400px; margin:0 auto;}
+        .topnav {display:flex; justify-content:space-between; align-items:center; background:#fff; border-radius:10px; padding:12px 20px; margin-bottom:20px; box-shadow:0 1px 4px #ddd;}
+        .topnav .logo {font-size:18px; font-weight:bold; color:#222;}
+        .nav-btns {display:flex; gap:12px;}
+        .nav-btn {padding:8px 16px; border-radius:6px; text-decoration:none; font-size:14px; color:#fff;}
+        .nav-btn.query {background:#2b7cd3;}
+        .nav-btn.import {background:#009688;}
         .box {background:#fff; border-radius:10px; padding:20px; margin-bottom:20px; box-shadow:0 1px 4px #ddd;}
         h2 {margin-bottom:16px; color:#222;}
         .row {display:flex; gap:16px; flex-wrap:wrap; margin-bottom:16px;}
@@ -30,6 +36,13 @@
     </style>
 </head>
 <body>
+    <div class="topnav">
+        <span class="logo">病例图片批量分类工具</span>
+        <div class="nav-btns">
+            <a class="nav-btn query" href="/medical-records">医疗记录查询</a>
+            <a class="nav-btn import" href="/import">医疗记录导入</a>
+        </div>
+    </div>
     <div class="box">
         <h2>病例批量分类配置</h2>
         <div class="form-item" style="margin-bottom:16px;">

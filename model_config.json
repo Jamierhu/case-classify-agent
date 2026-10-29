@@ -1,0 +1,9 @@
+{
+  "ollama_base_url": "http://127.0.0.1:11434",
+  "model": "qwen3-vl:8b",
+  "num_predict": 2048,
+  "num_ctx": 8192,
+  "classify_timeout": 300,
+  "name_timeout": 180,
+  "max_concurrent": 2
+}

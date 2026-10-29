@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>医疗记录详情</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: #f4f6fb;
+            font-family: "Microsoft YaHei", system-ui, sans-serif;
+            color: #1f2937;
+        }
+        .wrap {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 32px 20px;
+        }
+        .panel {
+            background: #fff;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 4px 20px rgba(15,23,42,.06);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 30px;
+        }
+        .back-link {
+            color: #2563eb;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .meta-item {
+            padding: 12px 14px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+        }
+        .meta-item strong { display: block; margin-bottom: 6px; }
+        .detail-box {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 18px;
+        }
+        .detail-card {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            background: #fafcff;
+            padding: 18px;
+        }
+        .detail-card h3 { margin: 0 0 12px 0; font-size: 20px; }
+        .detail-card p {
+            margin: 0;
+            line-height: 1.8;
+            white-space: pre-wrap;
+        }
+        .status {
+            font-size: 14px;
+            color: #475569;
+            margin-top: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="panel">
+            <div class="header">
+                <h1>医疗记录详情</h1>
+                <a class="back-link" href="/medical-records">返回台账</a>
+            </div>
+            <div id="recordStatus" class="status">加载中...</div>
+            <div id="recordMeta" class="meta"></div>
+            <div id="recordDetail" class="detail-box"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = "";
+        const urlParams = new URLSearchParams(window.location.search);
+        const recordId = urlParams.get('id');
+
+        async function loadRecord() {
+            if (!recordId) {
+                document.getElementById('recordStatus').textContent = '未提供记录编号';
+                return;
+            }
+            const res = await fetch(`${API_BASE}/medical_records/${recordId}`);
+            const json = await res.json();
+            if (!json || json.code !== 0) {
+                document.getElementById('recordStatus').textContent = json.msg || '记录不存在';
+                return;
+            }
+            const record = json.data;
+            document.getElementById('recordMeta').innerHTML = `
+                <div class="meta-item"><strong>患者姓名</strong>${record.patient_name || '-'}</div>
+                <div class="meta-item"><strong>病例编号</strong>${record.case_name || '-'}</div>
+                <div class="meta-item"><strong>就诊日期</strong>${record.record_date || '-'}</div>
+                <div class="meta-item"><strong>科室</strong>${record.dept || '-'}</div>
+                <div class="meta-item"><strong>记录类型</strong>${record.document_type || '病例'}</div>
+                <div class="meta-item"><strong>来源</strong>${record.source_path || '-'}</div>
+            `;
+
+            document.getElementById('recordDetail').innerHTML = `
+                <div class="detail-card">
+                    <h3>主诉 / 病情</h3>
+                    <p>${(record.chief_complaint || '暂无').replace(/\n/g, '<br>')}</p>
+                </div>
+                <div class="detail-card">
+                    <h3>诊断</h3>
+                    <p>${(record.diagnosis || '暂无').replace(/\n/g, '<br>')}</p>
+                </div>
+                <div class="detail-card">
+                    <h3>处理意见</h3>
+                    <p>${(record.treatment_opinion || '暂无').replace(/\n/g, '<br>')}</p>
+                </div>
+                <div class="detail-card">
+                    <h3>处方</h3>
+                    <p>${(record.prescription_text || '暂无').replace(/\n/g, '<br>')}</p>
+                </div>
+                <div class="detail-card">
+                    <h3>检查</h3>
+                    <p>${(record.examination_text || '暂无').replace(/\n/g, '<br>')}</p>
+                </div>
+                <div class="detail-card">
+                    <h3>嘱托</h3>
+                    <p>${(record.instructions_text || '暂无').replace(/\n/g, '<br>')}</p>
+                </div>
+                <div class="detail-card">
+                    <h3>医嘱</h3>
+                    <p>${(record.order_text || '暂无').replace(/\n/g, '<br>')}</p>
+                </div>
+                <div class="detail-card">
+                    <h3>导引单</h3>
+                    <p>${(record.guide_text || '暂无').replace(/\n/g, '<br>')}</p>
+                </div>
+                <div class="detail-card">
+                    <h3>用药与用量</h3>
+                    <p>药品：${record.medication_text || '暂无'}\n\n用量：${record.dosage_text || '暂无'}</p>
+                </div>
+                <div class="detail-card" style="grid-column: 1 / -1;">
+                    <h3>原始医疗单内容</h3>
+                    <p>${(record.raw_content || '暂无').replace(/\n/g, '<br>')}</p>
+                </div>
+            `;
+            document.getElementById('recordStatus').textContent = `记录编号：${record.id}，更新时间：${record.create_time || '-'}`;
+        }
+
+        loadRecord();
+    </script>
+</body>
+</html>

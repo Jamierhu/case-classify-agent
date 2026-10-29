@@ -4,7 +4,7 @@
 # 适用系统：Linux / macOS
 # 功能：
 #   1. 安装系统依赖（Python、Ollama）
-#   2. 拉取视觉模型 qwen3-vl:8b
+#   2. 拉取视觉模型（默认 qwen3-vl:8b，model_config.json / 环境变量可覆盖）
 #   3. 配置 Ollama 并发/常驻显存等优化项
 #   4. 创建 Python 虚拟环境并安装依赖
 #   5. 注册服务（Linux: systemd / macOS: launchd / Docker: 跳过），开机自启 + 局域网访问
@@ -179,6 +179,11 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SERVICE_NAME="case-classify"
 OLLAMA_MODEL="qwen3-vl:8b"
+# 项目已有 model_config.json 时，优先使用其中配置的模型
+if [ -f "$SCRIPT_DIR/model_config.json" ]; then
+    _CFG_MODEL=$(python3 -c "import json; print(json.load(open('$SCRIPT_DIR/model_config.json')).get('model',''))" 2>/dev/null || true)
+    [ -n "$_CFG_MODEL" ] && OLLAMA_MODEL="$_CFG_MODEL"
+fi
 APP_PORT=8000
 OLLAMA_PORT=11434
 PYTHON_BIN="${PYTHON_BIN:-python3}"
@@ -332,7 +337,8 @@ if [[ "$DEPLOY_MODE" == "docker" ]]; then
     echo -e "${GREEN}========================================================${NC}"
     echo ""
     echo -e "访问地址："
-    echo -e "  本机访问：  ${BLUE}http://127.0.0.1:${APP_PORT}${NC}"
+    echo -e "  上传分类页：  ${BLUE}http://127.0.0.1:${APP_PORT}${NC}"
+    echo -e "  台账查询页：  ${BLUE}http://127.0.0.1:${APP_PORT}/medical-records${NC}"
     echo -e "  局域网访问：${BLUE}http://${LAN_IP}:${APP_PORT}${NC}"
     echo ""
     echo -e "常用命令："
@@ -570,6 +576,14 @@ else
     info "模型 $OLLAMA_MODEL 拉取完成"
 fi
 
+# 校验模型支持图片识别（本系统把图片发给模型，纯文本模型无法工作）
+if ollama show "$OLLAMA_MODEL" 2>/dev/null | sed -n '/Capabilities/,/^$/p' | grep -qi vision; then
+    info "模型 $OLLAMA_MODEL 支持图片识别"
+else
+    warn "模型 $OLLAMA_MODEL 不支持图片识别（无 vision 能力），图片识别功能将不可用！"
+    warn "请编辑 model_config.json 的 model 字段为支持视觉的模型后重启服务"
+fi
+
 # ---------- 创建 Python 虚拟环境 ----------
 step "4/7 创建 Python 虚拟环境并安装依赖"
 
@@ -771,7 +785,8 @@ echo -e "${GREEN}          🎉 部署成功！${NC}"
 echo -e "${GREEN}========================================================${NC}"
 echo ""
 echo -e "访问地址："
-echo -e "  本机访问：  ${BLUE}http://127.0.0.1:${APP_PORT}${NC}"
+echo -e "  上传分类页：${BLUE}http://127.0.0.1:${APP_PORT}${NC}"
+echo -e "  台账查询页：${BLUE}http://127.0.0.1:${APP_PORT}/medical-records${NC}"
 echo -e "  局域网访问：${BLUE}http://${LAN_IP}:${APP_PORT}${NC}"
 echo ""
 
@@ -788,6 +803,7 @@ else
     echo -e "  重启服务：    ${YELLOW}sudo systemctl restart ${SERVICE_NAME}${NC}"
     echo -e "  停止服务：    ${YELLOW}sudo systemctl stop ${SERVICE_NAME}${NC}"
     echo -e "  查看应用日志：${YELLOW}tail -f /var/log/${SERVICE_NAME}.log${NC}"
+    echo -e "  切换AI模型：  ${YELLOW}编辑 model_config.json 的 model 字段后重启服务${NC}"
 fi
 
 echo ""

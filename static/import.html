@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>医疗记录导入</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: #f4f6fb;
+            font-family: "Microsoft YaHei", system-ui, sans-serif;
+            color: #1f2937;
+        }
+        .wrap {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 16px 20px;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(15,23,42,.06);
+        }
+        .topbar h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        .nav-links {
+            display: flex;
+            gap: 16px;
+        }
+        .nav-link {
+            color: #2563eb;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .panel {
+            background: #fff;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(15,23,42,.06);
+        }
+        .filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        label {
+            font-weight: 600;
+            color: #374151;
+        }
+        input, select, textarea, button {
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            padding: 10px 12px;
+            font-size: 14px;
+        }
+        input, select, textarea {
+            background: #fff;
+            width: 100%;
+        }
+        textarea {
+            resize: vertical;
+            min-height: 140px;
+        }
+        .button-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        button {
+            cursor: pointer;
+            font-weight: 600;
+            border: none;
+            transition: transform .12s ease;
+        }
+        button:hover { transform: translateY(-1px); }
+        .primary { background: #2563eb; color: #fff; }
+        .success { background: #16a34a; color: #fff; }
+        .muted { background: #e5e7eb; color: #111827; }
+        .status {
+            margin-top: 12px;
+            font-size: 13px;
+            color: #475569;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="topbar">
+            <h1>医疗记录导入</h1>
+            <div class="nav-links">
+                <a class="nav-link" href="/">返回病例分类</a>
+                <a class="nav-link" href="/medical-records">返回查询台账</a>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>新增记录</h2>
+            <div class="filters">
+                <div class="field">
+                    <label>患者姓名</label>
+                    <input id="newPatientName" placeholder="患者姓名" />
+                </div>
+                <div class="field">
+                    <label>就诊日期</label>
+                    <input id="newRecordDate" type="date" />
+                </div>
+                <div class="field">
+                    <label>科室</label>
+                    <input id="newDept" placeholder="普通门诊" />
+                </div>
+                <div class="field">
+                    <label>记录类型</label>
+                    <select id="newDocumentType">
+                        <option value="医嘱">医嘱</option>
+                        <option value="导引单">导引单</option>
+                        <option value="处方">处方</option>
+                        <option value="检查申请单">检查申请单</option>
+                        <option value="检验报告">检验报告</option>
+                        <option value="用药">用药</option>
+                        <option value="病例">病例</option>
+                        <option value="缴费票据">缴费票据</option>
+                    </select>
+                </div>
+            </div>
+            <div class="filters">
+                <div class="field">
+                    <label>医嘱内容</label>
+                    <textarea id="newOrderText" placeholder="例如：门诊复查，嘱按医嘱服药，温水泡脚"></textarea>
+                </div>
+                <div class="field">
+                    <label>导引单内容</label>
+                    <textarea id="newGuideText" placeholder="例如：注意休息，定期复查"></textarea>
+                </div>
+                <div class="field">
+                    <label>药品名称</label>
+                    <textarea id="newMedicationText" placeholder="例如：阿莫西林胶囊"></textarea>
+                </div>
+                <div class="field">
+                    <label>用药用量</label>
+                    <textarea id="newDosageText" placeholder="例如：0.5g，每日2次"></textarea>
+                </div>
+            </div>
+            <div class="field" style="margin-top:12px;">
+                <label>原始医疗单内容</label>
+                <textarea id="newRawContent" placeholder="可粘贴扫描件、纸质单据内容"></textarea>
+            </div>
+            <div class="button-group" style="margin-top:16px;">
+                <button class="success" id="addRecordBtn">新增记录</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>批量录入</h2>
+            <div class="field">
+                <label>批量录入原始病例内容（每段用 --- 分隔）</label>
+                <textarea id="batchRawText" placeholder="患者：张三
+日期：2024-09-26
+科室：普通门诊
+医嘱：门诊复查，按医嘱服药
+---
+患者：王五
+日期：2024-10-01
+科室：产后妇科门诊
+医嘱：继续休息，按时复查"></textarea>
+            </div>
+            <div class="button-group" style="margin-top:12px;">
+                <button class="primary" id="batchImportBtn">批量录入</button>
+            </div>
+        </div>
+
+        <div class="status" id="importStatus">就绪</div>
+    </div>
+
+    <script>
+        const API_BASE = "";
+
+        const els = {
+            newPatientName: document.getElementById('newPatientName'),
+            newRecordDate: document.getElementById('newRecordDate'),
+            newDept: document.getElementById('newDept'),
+            newDocumentType: document.getElementById('newDocumentType'),
+            newOrderText: document.getElementById('newOrderText'),
+            newGuideText: document.getElementById('newGuideText'),
+            newMedicationText: document.getElementById('newMedicationText'),
+            newDosageText: document.getElementById('newDosageText'),
+            newRawContent: document.getElementById('newRawContent'),
+            batchRawText: document.getElementById('batchRawText'),
+            importStatus: document.getElementById('importStatus')
+        };
+
+        async function saveRecord() {
+            const payload = {
+                patient_name: els.newPatientName.value.trim(),
+                record_date: els.newRecordDate.value,
+                dept: els.newDept.value.trim(),
+                document_type: els.newDocumentType.value,
+                order_text: els.newOrderText.value.trim(),
+                guide_text: els.newGuideText.value.trim(),
+                medication_text: els.newMedicationText.value.trim(),
+                dosage_text: els.newDosageText.value.trim(),
+                raw_content: els.newRawContent.value.trim(),
+                remark: '手工录入'
+            };
+            const res = await fetch(`${API_BASE}/medical_records/record`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const json = await res.json();
+            if (!json || json.code !== 0) {
+                els.importStatus.textContent = '新增记录失败';
+                return;
+            }
+            els.importStatus.textContent = '新增记录成功';
+            els.newPatientName.value = '';
+            els.newRecordDate.value = '';
+            els.newDept.value = '';
+            els.newDocumentType.value = '医嘱';
+            els.newOrderText.value = '';
+            els.newGuideText.value = '';
+            els.newMedicationText.value = '';
+            els.newDosageText.value = '';
+            els.newRawContent.value = '';
+        }
+
+        document.getElementById('addRecordBtn').addEventListener('click', saveRecord);
+
+        async function batchImport() {
+            const rawText = els.batchRawText.value.trim();
+            if (!rawText) {
+                els.importStatus.textContent = '请先粘贴原始病例内容';
+                return;
+            }
+            const res = await fetch(`${API_BASE}/medical_records/import_raw`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ raw_text: rawText })
+            });
+            const json = await res.json();
+            if (!json || json.code !== 0) {
+                els.importStatus.textContent = json.msg || '批量录入失败';
+                return;
+            }
+            els.importStatus.textContent = `批量录入成功，${json.count} 条记录已导入`;
+            els.batchRawText.value = '';
+        }
+
+        document.getElementById('batchImportBtn').addEventListener('click', batchImport);
+    </script>
+</body>
+</html>

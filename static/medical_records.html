@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>医疗记录查询台账</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: #f4f6fb;
+            font-family: "Microsoft YaHei", system-ui, sans-serif;
+            color: #1f2937;
+        }
+        .wrap {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 16px 20px;
+            background: #fff;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(15,23,42,.06);
+        }
+        .topbar h1 {
+            margin: 0;
+            font-size: 28px;
+        }
+        .nav-link {
+            color: #2563eb;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .panel {
+            background: #fff;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 20px rgba(15,23,42,.06);
+        }
+        .filters {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        label {
+            font-weight: 600;
+            color: #374151;
+        }
+        input, select, textarea, button {
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            padding: 10px 12px;
+            font-size: 14px;
+        }
+        input, select, textarea {
+            background: #fff;
+            width: 100%;
+        }
+        textarea {
+            resize: vertical;
+            min-height: 140px;
+        }
+        .button-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        button {
+            cursor: pointer;
+            font-weight: 600;
+            border: none;
+            transition: transform .12s ease;
+        }
+        button:hover { transform: translateY(-1px); }
+        .primary { background: #2563eb; color: #fff; }
+        .success { background: #16a34a; color: #fff; }
+        .warn { background: #f59e0b; color: #fff; }
+        .danger { background: #dc2626; color: #fff; }
+        .muted { background: #e5e7eb; color: #111827; }
+        .status {
+            margin-top: 12px;
+            font-size: 13px;
+            color: #475569;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            overflow: hidden;
+        }
+        th, td {
+            border-bottom: 1px solid #e5e7eb;
+            padding: 12px 10px;
+            text-align: left;
+            vertical-align: top;
+            font-size: 13px;
+        }
+        th {
+            background: #f8fafc;
+            color: #374151;
+            font-weight: 700;
+        }
+        tbody tr:hover { background: #f8fbff; }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: #dbeafe;
+            color: #1d4ed8;
+            font-size: 12px;
+            font-weight: 700;
+        }
+        .detail-box {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+        }
+        .detail-card {
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 16px;
+            background: #fafcff;
+        }
+        .detail-card h3 {
+            margin: 0 0 10px 0;
+            font-size: 18px;
+        }
+        .detail-card p {
+            margin: 8px 0;
+            line-height: 1.7;
+            white-space: pre-wrap;
+        }
+        .empty {
+            text-align: center;
+            color: #6b7280;
+            padding: 24px;
+        }
+        a.inline-link {
+            color: #2563eb;
+            text-decoration: none;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="topbar">
+            <h1>医疗记录查询台账</h1>
+            <div style="display:flex; gap:16px;">
+                <a class="nav-link" href="/">返回病例分类</a>
+                <a class="nav-link" href="/import">医疗记录导入</a>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>筛选条件</h2>
+            <div class="filters">
+                <div class="field">
+                    <label>患者姓名</label>
+                    <input id="patientName" placeholder="例如：张三" />
+                </div>
+                <div class="field">
+                    <label>就诊日期</label>
+                    <input id="recordDate" type="date" />
+                </div>
+                <div class="field">
+                    <label>科室</label>
+                    <input id="dept" placeholder="例如：普通门诊 / 心血管内科" />
+                </div>
+                <div class="field">
+                    <label>类型</label>
+                    <select id="documentType">
+                        <option value="">全部</option>
+                        <option value="医嘱">医嘱</option>
+                        <option value="导引单">导引单</option>
+                        <option value="处方">处方</option>
+                        <option value="检查申请单">检查申请单</option>
+                        <option value="检验报告">检验报告</option>
+                        <option value="用药">用药</option>
+                        <option value="病例">病例</option>
+                        <option value="缴费票据">缴费票据</option>
+                        <option value="__suspect__">⚠ 可疑待审</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label>关键字</label>
+                    <input id="keyword" placeholder="输入药名/医嘱关键字" />
+                </div>
+            </div>
+            <div class="button-group">
+                <button class="primary" id="queryBtn">查询</button>
+                <button class="warn" id="exportBtn">导出 CSV</button>
+                <button class="muted" id="resetBtn">重置</button>
+            </div>
+            <div class="status" id="queryStatus">就绪</div>
+        </div>
+
+        <div class="panel">
+            <h2>医疗记录列表</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>患者</th>
+                        <th>日期</th>
+                        <th>科室</th>
+                        <th>类型</th>
+                        <th>医嘱</th>
+                        <th>导引单</th>
+                        <th>用药 / 用量</th>
+                        <th>详情</th>
+                    </tr>
+                </thead>
+                <tbody id="recordsBody"></tbody>
+            </table>
+            <div id="emptyState" class="empty" style="display:none;">暂无符合条件的医疗记录</div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = "";
+
+        const els = {
+            patientName: document.getElementById('patientName'),
+            recordDate: document.getElementById('recordDate'),
+            dept: document.getElementById('dept'),
+            documentType: document.getElementById('documentType'),
+            keyword: document.getElementById('keyword'),
+            queryStatus: document.getElementById('queryStatus'),
+            recordsBody: document.getElementById('recordsBody'),
+            emptyState: document.getElementById('emptyState')
+        };
+
+        function buildQueryParams() {
+            const params = new URLSearchParams();
+            ['patient_name', 'record_date', 'dept', 'document_type', 'keyword', 'quality_flag'].forEach((key) => {
+                const val = {
+                    patient_name: els.patientName.value.trim(),
+                    record_date: els.recordDate.value,
+                    dept: els.dept.value.trim(),
+                    document_type: els.documentType.value === '__suspect__' ? '' : els.documentType.value,
+                    keyword: els.keyword.value.trim(),
+                    quality_flag: els.documentType.value === '__suspect__' ? 'suspect' : ''
+                }[key];
+                if (val) params.append(key, val);
+            });
+            return params;
+        }
+
+        async function loadRecords() {
+            const params = buildQueryParams();
+            els.queryStatus.textContent = '正在查询...';
+            const res = await fetch(`${API_BASE}/medical_records/query?${params.toString()}`);
+            const json = await res.json();
+            if (!json || json.code !== 0) {
+                els.queryStatus.textContent = '查询失败';
+                return;
+            }
+
+            const rows = json.data || [];
+            els.recordsBody.innerHTML = '';
+            if (!rows.length) {
+                els.emptyState.style.display = 'block';
+                els.queryStatus.textContent = `查询完成，0 条结果`;
+                return;
+            }
+            els.emptyState.style.display = 'none';
+
+            rows.forEach((row) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${row.id}</td>
+                    <td>${row.patient_name || '-'}</td>
+                    <td>${row.record_date || '-'}</td>
+                    <td>${row.dept || '-'}</td>
+                    <td><span class="badge">${row.document_type || '病例'}</span>${row.quality_flag ? ' <span class="badge" style="background:#c0392b">⚠待审</span>' : ''}</td>
+                    <td>${(row.order_text || '-').slice(0, 30)}</td>
+                    <td>${(row.guide_text || '-').slice(0, 30)}</td>
+                    <td>${(row.medication_text || row.dosage_text || '-').slice(0, 30)}</td>
+                    <td><a class="inline-link" href="/medical-record-detail?id=${row.id}">查看</a></td>
+                `;
+                els.recordsBody.appendChild(tr);
+            });
+            els.queryStatus.textContent = `查询完成，${rows.length} 条结果`;
+        }
+
+        document.getElementById('queryBtn').addEventListener('click', loadRecords);
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            els.patientName.value = '';
+            els.recordDate.value = '';
+            els.dept.value = '';
+            els.documentType.value = '';
+            els.keyword.value = '';
+            loadRecords();
+        });
+
+        document.getElementById('exportBtn').addEventListener('click', async () => {
+            const params = buildQueryParams();
+            const exportUrl = `${API_BASE}/medical_records/export?${params.toString()}`;
+            window.open(exportUrl, '_blank');
+            els.queryStatus.textContent = '正在导出 CSV...';
+        });
+
+        loadRecords();
+    </script>
+</body>
+</html>
